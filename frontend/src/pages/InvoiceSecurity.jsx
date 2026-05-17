@@ -20,20 +20,20 @@ export default function InvoiceSecurity() {
   const [loading, setLoading] = useState(false)
   const [actionLoading, setActionLoading] = useState(null) // 'keys', 'migrate', 'verify', 'recover'
   const [activeTab, setActiveTab] = useState('verify') // 'verify' or 'recover'
-  
+
   // Reports states
   const [verifyReport, setVerifyReport] = useState([])
   const [recoverReport, setRecoverReport] = useState([])
   const [uploadedFileName, setUploadedFileName] = useState('')
   const [statusMessage, setStatusMessage] = useState(null) // { type: 'success'|'error', text: '' }
 
-  // Action: Generate RSA Keys
+  // Generate RSA Keys
   const handleGenerateKeys = async () => {
     try {
       setActionLoading('keys')
       setStatusMessage(null)
       const blob = await invoiceSecurityApi.generateKeys()
-      
+
       // Create local URL and trigger file download
       const url = window.URL.createObjectURL(new Blob([blob]))
       const link = document.createElement('a')
@@ -42,7 +42,7 @@ export default function InvoiceSecurity() {
       document.body.appendChild(link)
       link.click()
       link.parentNode.removeChild(link)
-      
+
       setStatusMessage({
         type: 'success',
         text: 'Đã sinh cặp khóa RSA mới thành công! Khóa công khai đã được cài đặt trên Server, file khóa riêng tư "private_key.pem" đã tự động được tải xuống máy của bạn.'
@@ -57,7 +57,7 @@ export default function InvoiceSecurity() {
     }
   }
 
-  // Action: Migrate Legacy Invoices
+  // Migrate Legacy Invoices
   const handleMigrate = async () => {
     try {
       setActionLoading('migrate')
@@ -81,24 +81,24 @@ export default function InvoiceSecurity() {
     }
   }
 
-  // Action: Verify Chain Integrity
+  // Verify Chain Integrity
   const handleVerifyChain = async () => {
     try {
       setActionLoading('verify')
       setStatusMessage(null)
       const report = await invoiceSecurityApi.verifyChain()
       setVerifyReport(report)
-      
+
       const isTampered = report.some(item => item.status === 'TAMPERED')
       if (isTampered) {
         setStatusMessage({
           type: 'error',
-          text: 'CẢNH BÁO NGUY HIỂM: Hệ thống phát hiện có dấu hiệu sửa đổi dữ liệu trái phép trong cơ sở dữ liệu! Vui lòng kiểm tra các hóa đơn bị báo đỏ.'
+          text: 'Có dấu hiệu sửa đổi dữ liệu trái phép trong cơ sở dữ liệu. Vui lòng kiểm tra các hóa đơn bị báo đỏ.'
         })
       } else {
         setStatusMessage({
           type: 'success',
-          text: 'Toàn vẹn tuyệt đối: Đã kiểm tra chuỗi băm. Không phát hiện bất kỳ sự sai lệch dữ liệu nào!'
+          text: 'Đã kiểm tra chuỗi băm. Không phát hiện sai lệch.'
         })
       }
     } catch (error) {
@@ -111,7 +111,7 @@ export default function InvoiceSecurity() {
     }
   }
 
-  // Action: Recover Amounts using Private Key
+  // Recover Amounts using Private Key
   const handleRecover = async (e) => {
     const file = e.target.files[0]
     if (!file) return
@@ -123,14 +123,14 @@ export default function InvoiceSecurity() {
       const report = await invoiceSecurityApi.recoverAmounts(file)
       setRecoverReport(report)
       setActiveTab('recover') // Switch tab to show recovery report
-      
+
       const isMismatch = report.some(item => item.status === 'MISMATCH')
       const isDecFailed = report.some(item => item.status === 'DECRYPTION_FAILED')
-      
+
       if (isMismatch) {
         setStatusMessage({
           type: 'error',
-          text: 'CẢNH BÁO GIAN LẬN: Giải mã số tiền thành công nhưng phát hiện có sự SAI LỆCH SỐ TIỀN giữa Database và Bản gốc mã hóa!'
+          text: 'Phát hiện có sự SAI LỆCH SỐ TIỀN giữa Database và Bản gốc mã hóa!'
         })
       } else if (isDecFailed) {
         setStatusMessage({
@@ -176,11 +176,10 @@ export default function InvoiceSecurity() {
 
       {/* Notifications banner */}
       {statusMessage && (
-        <div className={`p-4 rounded-2xl border flex gap-3 animate-in fade-in duration-300 ${
-          statusMessage.type === 'success' 
-            ? 'bg-emerald-50 dark:bg-emerald-500/10 border-emerald-200 dark:border-emerald-500/30 text-emerald-800 dark:text-emerald-400'
-            : 'bg-red-50 dark:bg-red-500/10 border-red-200 dark:border-red-500/30 text-red-800 dark:text-red-400'
-        }`}>
+        <div className={`p-4 rounded-2xl border flex gap-3 animate-in fade-in duration-300 ${statusMessage.type === 'success'
+          ? 'bg-emerald-50 dark:bg-emerald-500/10 border-emerald-200 dark:border-emerald-500/30 text-emerald-800 dark:text-emerald-400'
+          : 'bg-red-50 dark:bg-red-500/10 border-red-200 dark:border-red-500/30 text-red-800 dark:text-red-400'
+          }`}>
           {statusMessage.type === 'success' ? (
             <CheckCircle2 className="shrink-0 text-emerald-500" size={22} />
           ) : (
@@ -194,17 +193,17 @@ export default function InvoiceSecurity() {
 
       {/* Grid Layout */}
       <div className="grid grid-cols-1 lg:grid-cols-3 gap-6">
-        
+
         {/* Left Column - Controls (Sinh khóa, Di trú, Upload Key) */}
         <div className="lg:col-span-1 space-y-6">
-          
+
           {/* Card 1: Keypair Operations */}
           <div className="bg-white dark:bg-slate-900 border border-slate-100 dark:border-slate-800 p-6 rounded-3xl shadow-sm">
             <h3 className="font-bold text-slate-900 dark:text-white mb-4 flex items-center gap-2">
               <Key size={18} className="text-emerald-500" /> Quản lý Khóa RSA
             </h3>
             <p className="text-xs text-slate-500 dark:text-slate-400 leading-relaxed mb-5">
-              Cặp khóa bất đối xứng RSA 2048-bit. Khóa công khai lưu trên máy chủ để mã hóa số tiền khi thanh toán. Khóa riêng tư gửi cho chủ quán tự lưu giữ.
+
             </p>
             <div className="flex items-center gap-2 mb-4 bg-emerald-500/5 border border-emerald-500/20 px-3.5 py-2.5 rounded-xl">
               <CheckCircle2 size={16} className="text-emerald-500" />
@@ -230,7 +229,7 @@ export default function InvoiceSecurity() {
               <Database size={18} className="text-teal-500" /> Di trú Dữ liệu Hóa đơn cũ
             </h3>
             <p className="text-xs text-slate-500 dark:text-slate-400 leading-relaxed mb-5">
-              Các hóa đơn thanh toán trước khi có lớp bảo mật sẽ có cột băm và cột số tiền mã hóa bị trống (NULL). API di trú sẽ tính toán băm chuỗi Blockchain và mã hóa RSA cho toàn bộ hóa đơn lịch sử.
+              Tính toán băm chuỗi Blockchain và mã hóa RSA cho toàn bộ hóa đơn lịch sử.
             </p>
             <button
               onClick={handleMigrate}
@@ -254,7 +253,7 @@ export default function InvoiceSecurity() {
             <p className="text-xs text-slate-500 dark:text-slate-400 leading-relaxed mb-5">
               Tải file khóa riêng tư `.pem` của bạn lên RAM hệ thống để giải mã số tiền hóa đơn thật. Backend sẽ so khớp trực tiếp để phát hiện chênh lệch với DB (không lưu file xuống ổ cứng server).
             </p>
-            
+
             <label className="flex flex-col items-center justify-center w-full h-32 border-2 border-dashed border-slate-200 dark:border-slate-700 rounded-2xl cursor-pointer bg-slate-50 dark:bg-slate-800/40 hover:bg-slate-100 dark:hover:bg-slate-800/80 transition-all">
               <div className="flex flex-col items-center justify-center pt-5 pb-6">
                 {actionLoading === 'recover' ? (
@@ -281,28 +280,26 @@ export default function InvoiceSecurity() {
 
         {/* Right Column - Results Report (Tables with Verify Chain / Decrypting) */}
         <div className="lg:col-span-2 space-y-6">
-          
+
           {/* Main Tab Area */}
           <div className="bg-white dark:bg-slate-900 border border-slate-100 dark:border-slate-800 p-6 rounded-3xl shadow-sm min-h-[500px]">
             <div className="flex flex-col sm:flex-row justify-between items-start sm:items-center gap-4 mb-6 border-b border-slate-100 dark:border-slate-800 pb-4">
               <div className="flex bg-slate-100 dark:bg-slate-800 p-1 rounded-xl">
                 <button
                   onClick={() => setActiveTab('verify')}
-                  className={`px-4 py-2 rounded-lg text-xs font-bold transition-all ${
-                    activeTab === 'verify'
-                      ? 'bg-white dark:bg-slate-950 text-slate-900 dark:text-white shadow-sm'
-                      : 'text-slate-500 hover:text-slate-800 dark:hover:text-slate-300'
-                  }`}
+                  className={`px-4 py-2 rounded-lg text-xs font-bold transition-all ${activeTab === 'verify'
+                    ? 'bg-white dark:bg-slate-950 text-slate-900 dark:text-white shadow-sm'
+                    : 'text-slate-500 hover:text-slate-800 dark:hover:text-slate-300'
+                    }`}
                 >
                   Kiểm tra chuỗi băm ({verifyReport.length})
                 </button>
                 <button
                   onClick={() => setActiveTab('recover')}
-                  className={`px-4 py-2 rounded-lg text-xs font-bold transition-all ${
-                    activeTab === 'recover'
-                      ? 'bg-white dark:bg-slate-950 text-slate-900 dark:text-white shadow-sm'
-                      : 'text-slate-500 hover:text-slate-800 dark:hover:text-slate-300'
-                  }`}
+                  className={`px-4 py-2 rounded-lg text-xs font-bold transition-all ${activeTab === 'recover'
+                    ? 'bg-white dark:bg-slate-950 text-slate-900 dark:text-white shadow-sm'
+                    : 'text-slate-500 hover:text-slate-800 dark:hover:text-slate-300'
+                    }`}
                 >
                   Giải mã số tiền ({recoverReport.length})
                 </button>
@@ -357,11 +354,10 @@ export default function InvoiceSecurity() {
                               {item.calculatedHash ? `${item.calculatedHash.substring(0, 10)}...` : 'NULL'}
                             </td>
                             <td className="py-4">
-                              <span className={`inline-flex items-center gap-1 font-bold px-2 py-1 rounded-md ${
-                                item.status === 'OK'
-                                  ? 'bg-emerald-50 text-emerald-700 dark:bg-emerald-500/10 dark:text-emerald-400'
-                                  : 'bg-red-50 text-red-700 dark:bg-red-500/10 dark:text-red-400 animate-pulse'
-                              }`}>
+                              <span className={`inline-flex items-center gap-1 font-bold px-2 py-1 rounded-md ${item.status === 'OK'
+                                ? 'bg-emerald-50 text-emerald-700 dark:bg-emerald-500/10 dark:text-emerald-400'
+                                : 'bg-red-50 text-red-700 dark:bg-red-500/10 dark:text-red-400 animate-pulse'
+                                }`}>
                                 {item.status === 'OK' ? (
                                   <>
                                     <CheckCircle2 size={12} /> OK
@@ -415,18 +411,17 @@ export default function InvoiceSecurity() {
                               {item.dbAmount ? new Intl.NumberFormat('vi-VN', { style: 'currency', currency: 'VND' }).format(item.dbAmount) : '0đ'}
                             </td>
                             <td className="py-4 font-bold text-emerald-600 dark:text-emerald-400">
-                              {item.decryptedAmount 
+                              {item.decryptedAmount
                                 ? new Intl.NumberFormat('vi-VN', { style: 'currency', currency: 'VND' }).format(item.decryptedAmount)
                                 : '—'}
                             </td>
                             <td className="py-4">
-                              <span className={`inline-flex items-center gap-1 font-bold px-2 py-1 rounded-md ${
-                                item.status === 'MATCH'
-                                  ? 'bg-emerald-50 text-emerald-700 dark:bg-emerald-500/10 dark:text-emerald-400'
-                                  : item.status === 'MISMATCH'
+                              <span className={`inline-flex items-center gap-1 font-bold px-2 py-1 rounded-md ${item.status === 'MATCH'
+                                ? 'bg-emerald-50 text-emerald-700 dark:bg-emerald-500/10 dark:text-emerald-400'
+                                : item.status === 'MISMATCH'
                                   ? 'bg-red-50 text-red-700 dark:bg-red-500/10 dark:text-red-400 animate-bounce'
                                   : 'bg-slate-50 text-slate-600 dark:bg-slate-800/40 dark:text-slate-400'
-                              }`}>
+                                }`}>
                                 {item.status === 'MATCH' && (
                                   <>
                                     <CheckCircle2 size={12} /> Khớp 100%
@@ -440,11 +435,10 @@ export default function InvoiceSecurity() {
                                 {item.status === 'NOT_ENCRYPTED' && 'Chưa mã hóa'}
                                 {item.status === 'DECRYPTION_FAILED' && 'Lỗi giải mã'}
                               </span>
-                              <div className={`mt-1 text-[10px] ${
-                                item.status === 'MATCH' ? 'text-slate-400' : 
-                                item.status === 'MISMATCH' ? 'text-red-500 font-bold' : 
-                                'text-slate-400'
-                              }`}>
+                              <div className={`mt-1 text-[10px] ${item.status === 'MATCH' ? 'text-slate-400' :
+                                item.status === 'MISMATCH' ? 'text-red-500 font-bold' :
+                                  'text-slate-400'
+                                }`}>
                                 {item.message}
                               </div>
                             </td>
