@@ -31,6 +31,32 @@ const keyManagementApi = {
     },
     endDistribution: () => {
         return axiosClient.post('/security/keys/end-distribution');
+    },
+    startRecovery: () => {
+        return axiosClient.post('/security/keys/start-recovery');
+    },
+    endRecovery: () => {
+        return axiosClient.post('/security/keys/end-recovery');
+    },
+    getActiveRecovery: () => {
+        return axiosClient.get('/security/keys/active-recovery');
+    },
+    uploadRecoveryShares: (files) => {
+        const formData = new FormData();
+        files.forEach(file => {
+            formData.append('files', file);
+        });
+        return axiosClient.post('/security/keys/upload-recovery-shares', formData, {
+            headers: { 'Content-Type': 'multipart/form-data' }
+        });
+    },
+    executeCollaborativeRecovery: () => {
+        return axiosClient.post('/security/keys/execute-collaborative-recovery');
+    },
+    downloadRestoredKey: () => {
+        return axiosClient.get('/security/keys/download-restored-key', {
+            responseType: 'blob'
+        });
     }
 };
 

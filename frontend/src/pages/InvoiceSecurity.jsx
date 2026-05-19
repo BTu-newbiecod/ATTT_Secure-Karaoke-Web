@@ -26,7 +26,12 @@ export default function InvoiceSecurity() {
 
   // Reports states
   const [verifyReport, setVerifyReport] = useState([])
+  const [verifyPageInfo, setVerifyPageInfo] = useState({ number: 0, totalPages: 0, totalElements: 0 })
+  
   const [recoverReport, setRecoverReport] = useState([])
+  const [recoverPageInfo, setRecoverPageInfo] = useState({ number: 0, totalPages: 0, totalElements: 0 })
+  const [privateKeyFile, setPrivateKeyFile] = useState(null)
+
   const [uploadedFileName, setUploadedFileName] = useState('')
   const [statusMessage, setStatusMessage] = useState(null) // { type: 'success'|'error', text: '' }
 
@@ -91,12 +96,14 @@ export default function InvoiceSecurity() {
   }
 
   // Verify Chain Integrity
-  const handleVerifyChain = async () => {
+  const handleVerifyChain = async (page = 0) => {
     try {
       setActionLoading('verify')
       setStatusMessage(null)
-      const report = await invoiceSecurityApi.verifyChain()
+      const res = await invoiceSecurityApi.verifyChain(page)
+      const report = res.content
       setVerifyReport(report)
+      setVerifyPageInfo({ number: res.number, totalPages: res.totalPages, totalElements: res.totalElements })
 
       const isTampered = report.some(item => item.status === 'TAMPERED')
       if (isTampered) {
@@ -121,21 +128,24 @@ export default function InvoiceSecurity() {
   }
 
   // Recover Amounts using Private Key
-  const handleRecover = async (e) => {
-    let file;
-    if (e && e.target && e.target.files) {
-      file = e.target.files[0];
-    } else {
-      file = e; // Treat e as the file itself if passed directly
+  const handleRecover = async (eOrFile, page = 0) => {
+    let file = eOrFile;
+    if (eOrFile && eOrFile.target && eOrFile.target.files) {
+      file = eOrFile.target.files[0];
+    } else if (!file && privateKeyFile) {
+      file = privateKeyFile;
     }
     if (!file) return
 
+    setPrivateKeyFile(file)
     setUploadedFileName(file.name)
     try {
       setActionLoading('recover')
       setStatusMessage(null)
-      const report = await invoiceSecurityApi.recoverAmounts(file)
+      const res = await invoiceSecurityApi.recoverAmounts(file, page)
+      const report = res.content
       setRecoverReport(report)
+      setRecoverPageInfo({ number: res.number, totalPages: res.totalPages, totalElements: res.totalElements })
       setActiveTab('recover') // Switch tab to show recovery report
 
       const isMismatch = report.some(item => item.status === 'MISMATCH')
@@ -308,7 +318,7 @@ export default function InvoiceSecurity() {
                     : 'text-slate-500 hover:text-slate-800 dark:hover:text-slate-300'
                     }`}
                 >
-                  Kiểm tra chuỗi băm ({verifyReport.length})
+                  Kiểm tra chuỗi băm ({verifyPageInfo.totalElements})
                 </button>
                 <button
                   onClick={() => setActiveTab('recover')}
@@ -317,13 +327,13 @@ export default function InvoiceSecurity() {
                     : 'text-slate-500 hover:text-slate-800 dark:hover:text-slate-300'
                     }`}
                 >
-                  Giải mã số tiền ({recoverReport.length})
+                  Giải mã số tiền ({recoverPageInfo.totalElements})
                 </button>
               </div>
 
               {activeTab === 'verify' && (
                 <button
-                  onClick={handleVerifyChain}
+                  onClick={() => handleVerifyChain(0)}
                   disabled={actionLoading !== null}
                   className="flex items-center gap-1.5 bg-emerald-50 hover:bg-emerald-100 dark:bg-emerald-500/10 text-emerald-600 dark:text-emerald-400 font-bold px-4 py-2 rounded-xl text-xs transition-colors border border-emerald-200/50 dark:border-emerald-500/20"
                 >
@@ -392,6 +402,30 @@ export default function InvoiceSecurity() {
                         ))}
                       </tbody>
                     </table>
+                    
+                    {verifyPageInfo.totalPages > 1 && (
+                      <div className="flex items-center justify-between mt-6 pt-4 border-t border-slate-100 dark:border-slate-800">
+                        <span className="text-xs text-slate-500">
+                          Trang {verifyPageInfo.number + 1} / {verifyPageInfo.totalPages}
+                        </span>
+                        <div className="flex gap-2">
+                          <button
+                            disabled={verifyPageInfo.number === 0}
+                            onClick={() => handleVerifyChain(verifyPageInfo.number - 1)}
+                            className="px-3 py-1.5 rounded-lg border border-slate-200 dark:border-slate-700 text-xs font-medium hover:bg-slate-50 dark:hover:bg-slate-800 disabled:opacity-50"
+                          >
+                            Trước
+                          </button>
+                          <button
+                            disabled={verifyPageInfo.number === verifyPageInfo.totalPages - 1}
+                            onClick={() => handleVerifyChain(verifyPageInfo.number + 1)}
+                            className="px-3 py-1.5 rounded-lg border border-slate-200 dark:border-slate-700 text-xs font-medium hover:bg-slate-50 dark:hover:bg-slate-800 disabled:opacity-50"
+                          >
+                            Sau
+                          </button>
+                        </div>
+                      </div>
+                    )}
                   </div>
                 )}
               </div>
@@ -462,6 +496,30 @@ export default function InvoiceSecurity() {
                         ))}
                       </tbody>
                     </table>
+                    
+                    {recoverPageInfo.totalPages > 1 && (
+                      <div className="flex items-center justify-between mt-6 pt-4 border-t border-slate-100 dark:border-slate-800">
+                        <span className="text-xs text-slate-500">
+                          Trang {recoverPageInfo.number + 1} / {recoverPageInfo.totalPages}
+                        </span>
+                        <div className="flex gap-2">
+                          <button
+                            disabled={recoverPageInfo.number === 0}
+                            onClick={() => handleRecover(null, recoverPageInfo.number - 1)}
+                            className="px-3 py-1.5 rounded-lg border border-slate-200 dark:border-slate-700 text-xs font-medium hover:bg-slate-50 dark:hover:bg-slate-800 disabled:opacity-50"
+                          >
+                            Trước
+                          </button>
+                          <button
+                            disabled={recoverPageInfo.number === recoverPageInfo.totalPages - 1}
+                            onClick={() => handleRecover(null, recoverPageInfo.number + 1)}
+                            className="px-3 py-1.5 rounded-lg border border-slate-200 dark:border-slate-700 text-xs font-medium hover:bg-slate-50 dark:hover:bg-slate-800 disabled:opacity-50"
+                          >
+                            Sau
+                          </button>
+                        </div>
+                      </div>
+                    )}
                   </div>
                 )}
               </div>

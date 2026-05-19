@@ -9,6 +9,9 @@ import com.karaoke.backend.repository.SystemConfigRepository;
 import com.karaoke.backend.security.service.InvoiceSecurityService;
 import com.karaoke.backend.util.CryptoUtils;
 import lombok.RequiredArgsConstructor;
+import org.springframework.data.domain.Page;
+import org.springframework.data.domain.PageImpl;
+import org.springframework.data.domain.Pageable;
 import org.springframework.data.domain.Sort;
 import org.springframework.stereotype.Service;
 
@@ -63,7 +66,7 @@ public class InvoiceSecurityServiceImpl implements InvoiceSecurityService {
     }
 
     @Override
-    public List<InvoiceTamperReportDto> verifyInvoiceChain() {
+    public Page<InvoiceTamperReportDto> verifyInvoiceChain(Pageable pageable) {
         List<Invoice> paidInvoices = invoiceRepository.findAll(Sort.by(Sort.Direction.ASC, "id")).stream()
                 .filter(i -> i.getStatus() == Invoice.InvoiceStatus.PAID)
                 .collect(Collectors.toList());
@@ -96,11 +99,15 @@ public class InvoiceSecurityServiceImpl implements InvoiceSecurityService {
             report.add(dto);
         }
 
-        return report;
+        int start = (int) pageable.getOffset();
+        int end = Math.min((start + pageable.getPageSize()), report.size());
+        List<InvoiceTamperReportDto> pageContent = start > report.size() ? new ArrayList<>() : report.subList(start, end);
+        
+        return new PageImpl<>(pageContent, pageable, report.size());
     }
 
     @Override
-    public List<InvoiceRecoveryReportDto> verifyAndRecoverAmounts(String privateKeyPem) {
+    public Page<InvoiceRecoveryReportDto> verifyAndRecoverAmounts(String privateKeyPem, Pageable pageable) {
         PrivateKey privateKey;
         try {
             privateKey = CryptoUtils.parsePrivateKeyPem(privateKeyPem);
@@ -148,7 +155,11 @@ public class InvoiceSecurityServiceImpl implements InvoiceSecurityService {
             report.add(dto);
         }
 
-        return report;
+        int start = (int) pageable.getOffset();
+        int end = Math.min((start + pageable.getPageSize()), report.size());
+        List<InvoiceRecoveryReportDto> pageContent = start > report.size() ? new ArrayList<>() : report.subList(start, end);
+        
+        return new PageImpl<>(pageContent, pageable, report.size());
     }
 
     @Override

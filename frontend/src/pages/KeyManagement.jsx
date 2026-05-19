@@ -43,11 +43,13 @@ export default function KeyManagement() {
 
   // Restore state
   const [restoreFiles, setRestoreFiles] = useState([])
+  const [recoveryCount, setRecoveryCount] = useState(0)
 
   const [managers, setManagers] = useState([])
   const [downloadStatuses, setDownloadStatuses] = useState({})
   const [stompClient, setStompClient] = useState(null)
   const [isSocketActive, setIsSocketActive] = useState(false)
+  const [isRecoverySocketActive, setIsRecoverySocketActive] = useState(false)
   
   // Quick admin download state
   const [otps, setOtps] = useState({})
@@ -99,6 +101,30 @@ export default function KeyManagement() {
             setDownloadStatuses({})
             setSelectedManagers(['', '', '', ''])
             setStatusMessage({ type: 'success', text: 'Tiến trình phân rã khóa đã kết thúc.' })
+          } else if (data.status === 'RECOVERY_READY') {
+            setIsRecoverySocketActive(true)
+            setRestoreFiles([])
+            setStatusMessage({ type: 'success', text: 'Phiên khôi phục khóa đã bắt đầu!' })
+          } else if (data.status === 'RECOVERY_ENDED') {
+            setIsRecoverySocketActive(false)
+            setRestoreFiles([])
+            setRecoveryCount(0)
+            setStatusMessage({ type: 'success', text: 'Phiên khôi phục khóa đã kết thúc.' })
+          } else if (data.status === 'RECOVERY_UPDATE') {
+            setRecoveryCount(data.count)
+          } else if (data.status === 'RECOVERY_SUCCESS') {
+            setStatusMessage({ type: 'success', text: 'Khôi phục thành công! Đang tải Master Key và chuyển hướng...' })
+            keyManagementApi.downloadRestoredKey()
+              .then(blob => {
+                 const file = new File([blob], 'restored_master_key.pem', { type: 'application/x-pem-file' })
+                 setIsRecoverySocketActive(false)
+                 setRestoreFiles([])
+                 setRecoveryCount(0)
+                 navigate('/invoices/security', { state: { restoredKeyFile: file } })
+              })
+              .catch(err => {
+                 setStatusMessage({ type: 'error', text: 'Lỗi tải file khôi phục về trình duyệt.' })
+              })
           }
         })
       }
@@ -121,10 +147,15 @@ export default function KeyManagement() {
              })
           }
           setDownloadStatuses(newDownloadStatuses)
-          startStompClient()
-        } else {
-          startStompClient()
         }
+        const resRec = await keyManagementApi.getActiveRecovery()
+        if (resRec && resRec.active) {
+          setIsRecoverySocketActive(true)
+          if (resRec.count !== undefined) {
+             setRecoveryCount(resRec.count)
+          }
+        }
+        startStompClient()
       } catch (err) {
          console.error(err)
          startStompClient()
@@ -246,17 +277,43 @@ export default function KeyManagement() {
     }
   }
 
-  const handleRestoreFilesChange = (e) => {
-    if (e.target.files) {
-      setRestoreFiles(Array.from(e.target.files))
+  const handleRestoreFilesChange = async (e) => {
+    if (e.target.files && e.target.files.length > 0) {
+      try {
+        setActionLoading('upload_share')
+        const filesToUpload = Array.from(e.target.files)
+        await keyManagementApi.uploadRecoveryShares(filesToUpload)
+        setRestoreFiles(prev => [...prev, ...filesToUpload])
+      } catch (err) {
+        setStatusMessage({ type: 'error', text: 'Tải mảnh khóa thất bại: ' + (err.response?.data || err.message) })
+      } finally {
+        setActionLoading(null)
+      }
+    }
+  }
+
+  const handleStartRecovery = async () => {
+    try {
+        await keyManagementApi.startRecovery()
+    } catch(err) {
+        console.error(err)
+        setStatusMessage({ type: 'error', text: 'Không thể bắt đầu phiên khôi phục.' })
+    }
+  }
+
+  const handleEndRecovery = async () => {
+    try {
+        await keyManagementApi.endRecovery()
+    } catch(err) {
+        console.error(err)
     }
   }
 
   const handleRestore = async () => {
-    if (restoreFiles.length < 3) {
+    if (recoveryCount < 3) {
       setStatusMessage({
         type: 'error',
-        text: 'Vui lòng chọn ít nhất 3 file mảnh khóa (.pem) để khôi phục.'
+        text: 'Vui lòng tải lên ít nhất 3 file mảnh khóa (.pem) để khôi phục.'
       })
       return
     }
@@ -265,18 +322,12 @@ export default function KeyManagement() {
       setActionLoading('restore')
       setStatusMessage(null)
       
-      const blob = await keyManagementApi.restore(restoreFiles)
+      await keyManagementApi.executeCollaborativeRecovery()
       
-      const file = new File([blob], 'restored_master_key.pem', { type: 'application/x-pem-file' })
-
       setStatusMessage({
         type: 'success',
-        text: 'Khôi phục khóa thành công! Đang chuyển hướng để giải mã hóa đơn...'
+        text: 'Khôi phục khóa thành công! Đang đồng bộ và chuyển hướng tất cả tài khoản...'
       })
-      
-      setTimeout(() => {
-        navigate('/invoices/security', { state: { restoredKeyFile: file } })
-      }, 1000)
     } catch (error) {
       let errMsg = 'Có lỗi xảy ra.'
       if (error.response?.data instanceof Blob) {
@@ -289,7 +340,6 @@ export default function KeyManagement() {
         type: 'error',
         text: 'Khôi phục khóa thất bại: ' + errMsg
       })
-    } finally {
       setActionLoading(null)
     }
   }
@@ -518,54 +568,93 @@ export default function KeyManagement() {
             {/* Restore View */}
             {activeTab === 'restore' && (
               <div className="space-y-6 animate-in fade-in">
-                <div>
-                  <h3 className="font-bold text-slate-900 dark:text-white text-lg mb-2">Khôi phục Master Key từ các mảnh (Shares)</h3>
-                  <p className="text-sm text-slate-500 dark:text-slate-400 mb-4">
-                    Tải lên ít nhất 3 file mảnh khóa (.pem) để khôi phục Master Key.
-                  </p>
-                </div>
-
-                <label className="flex flex-col items-center justify-center w-full h-32 border-2 border-dashed border-indigo-200 dark:border-indigo-500/30 rounded-2xl cursor-pointer bg-indigo-50/50 dark:bg-indigo-500/5 hover:bg-indigo-50 dark:hover:bg-indigo-500/10 transition-all">
-                    <div className="flex flex-col items-center justify-center pt-5 pb-6">
-                    <FileUp className="text-indigo-400 dark:text-indigo-500 mb-2" size={24} />
-                    <p className="text-sm font-bold text-slate-700 dark:text-slate-300">
-                        {restoreFiles.length > 0 ? `Đã chọn ${restoreFiles.length} file` : 'Chọn các file mảnh khóa (.pem)'}
+                {!isRecoverySocketActive ? (
+                  <div className="flex flex-col items-center justify-center py-12 border-2 border-dashed border-slate-200 dark:border-slate-700 rounded-3xl bg-slate-50 dark:bg-slate-800/50">
+                    <ShieldCheck className="text-indigo-400 mb-4" size={48} />
+                    <h3 className="font-bold text-slate-900 dark:text-white text-xl mb-2">Bắt đầu phiên khôi phục</h3>
+                    <p className="text-sm text-slate-500 dark:text-slate-400 mb-6 text-center max-w-md">
+                      Mở phiên khôi phục để các Quản lý có thể chọn mảnh khóa. Cần ít nhất 3 mảnh để khôi phục Master Key thành công.
                     </p>
-                    </div>
-                    <input
-                    type="file"
-                    accept=".pem,.txt"
-                    multiple
-                    onChange={handleRestoreFilesChange}
-                    disabled={actionLoading !== null}
-                    className="hidden"
-                    />
-                </label>
-
-                {restoreFiles.length > 0 && (
-                    <div className="bg-slate-50 dark:bg-slate-800 rounded-xl p-4 border border-slate-200 dark:border-slate-700">
-                        <ul className="list-disc list-inside text-sm text-slate-600 dark:text-slate-300">
-                            {restoreFiles.map((f, i) => (
-                                <li key={i}>{f.name}</li>
-                            ))}
-                        </ul>
-                    </div>
-                )}
-
-                <div className="flex justify-end pt-4">
-                  <button
-                    onClick={handleRestore}
-                    disabled={actionLoading === 'restore' || restoreFiles.length < 3}
-                    className="w-full sm:w-auto flex items-center justify-center gap-2 bg-gradient-to-r from-indigo-600 to-blue-700 hover:from-indigo-700 hover:to-blue-800 text-white font-bold py-2.5 px-6 rounded-xl transition-all shadow-md shadow-indigo-500/20 disabled:opacity-50 text-sm"
-                  >
-                    {actionLoading === 'restore' ? (
-                      <Loader2 className="animate-spin" size={16} />
-                    ) : (
-                      <Unlock size={16} />
+                    {(user?.role === 'ADMIN' || user?.role === 'MANAGER') && (
+                        <button
+                        onClick={handleStartRecovery}
+                        className="flex items-center gap-2 bg-gradient-to-r from-indigo-600 to-blue-700 hover:from-indigo-700 hover:to-blue-800 text-white font-bold py-3 px-8 rounded-xl transition-all shadow-md shadow-indigo-500/20"
+                        >
+                        <Unlock size={20} />
+                        Bắt đầu khôi phục
+                        </button>
                     )}
-                    Thực hiện khôi phục
-                  </button>
-                </div>
+                  </div>
+                ) : (
+                  <>
+                    <div className="flex flex-col sm:flex-row sm:justify-between sm:items-center gap-4 mb-6">
+                        <div>
+                            <h3 className="font-bold text-slate-900 dark:text-white text-lg">Khôi phục Master Key từ các mảnh (Shares)</h3>
+                            <p className="text-sm text-slate-500 dark:text-slate-400 mt-1">
+                                Tải lên ít nhất 3 file mảnh khóa (.pem) để khôi phục Master Key.
+                            </p>
+                        </div>
+                        {(user?.role === 'ADMIN' || user?.role === 'MANAGER') && (
+                            <button onClick={handleEndRecovery} className="bg-red-50 hover:bg-red-100 text-red-600 border border-red-200 px-4 py-2 rounded-lg text-sm font-bold transition-colors shadow-sm w-full sm:w-auto">
+                                Kết thúc
+                            </button>
+                        )}
+                    </div>
+
+                    <div className="flex items-center justify-between bg-indigo-50 dark:bg-indigo-500/10 border border-indigo-100 dark:border-indigo-500/30 p-4 rounded-2xl mb-2">
+                        <div className="flex items-center gap-2">
+                            <Key className="text-indigo-600 dark:text-indigo-400" size={20} />
+                            <span className="font-bold text-indigo-900 dark:text-indigo-300">Số lượng file đã upload:</span>
+                        </div>
+                        <div className="text-2xl font-black text-indigo-600 dark:text-indigo-400">
+                            {recoveryCount}/3
+                        </div>
+                    </div>
+
+                    <label className="flex flex-col items-center justify-center w-full h-32 border-2 border-dashed border-indigo-200 dark:border-indigo-500/30 rounded-2xl cursor-pointer bg-indigo-50/50 dark:bg-indigo-500/5 hover:bg-indigo-50 dark:hover:bg-indigo-500/10 transition-all">
+                        <div className="flex flex-col items-center justify-center pt-5 pb-6">
+                        <FileUp className="text-indigo-400 dark:text-indigo-500 mb-2" size={24} />
+                        <p className="text-sm font-bold text-slate-700 dark:text-slate-300">
+                            Chọn hoặc kéo thả các file mảnh khóa (.pem) vào đây
+                        </p>
+                        </div>
+                        <input
+                        type="file"
+                        accept=".pem,.txt"
+                        multiple
+                        onChange={handleRestoreFilesChange}
+                        disabled={actionLoading !== null}
+                        className="hidden"
+                        />
+                    </label>
+
+                    {restoreFiles.length > 0 && (
+                        <div className="bg-slate-50 dark:bg-slate-800 rounded-xl p-4 border border-slate-200 dark:border-slate-700">
+                            <div className="text-xs font-bold text-slate-500 uppercase tracking-wider mb-2">Các file bạn đã tải lên</div>
+                            <ul className="list-disc list-inside text-sm text-slate-600 dark:text-slate-300">
+                                {restoreFiles.map((f, i) => (
+                                    <li key={i}>{f.name}</li>
+                                ))}
+                            </ul>
+                        </div>
+                    )}
+
+                    <div className="flex justify-end pt-4">
+                    <button
+                        onClick={handleRestore}
+                        disabled={actionLoading === 'restore' || recoveryCount < 3}
+                        className="w-full sm:w-auto flex items-center justify-center gap-2 bg-gradient-to-r from-indigo-600 to-blue-700 hover:from-indigo-700 hover:to-blue-800 text-white font-bold py-2.5 px-6 rounded-xl transition-all shadow-md shadow-indigo-500/20 disabled:opacity-50 text-sm"
+                    >
+                        {actionLoading === 'restore' ? (
+                        <Loader2 className="animate-spin" size={16} />
+                        ) : (
+                        <Unlock size={16} />
+                        )}
+                        Thực hiện khôi phục
+                    </button>
+                    </div>
+                  </>
+                )}
               </div>
             )}
 

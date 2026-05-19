@@ -39,6 +39,9 @@ public class KeyManagementController
     private final SystemConfigRepository systemConfigRepository;
     public static final Map<String, ShareDTO> pendingSharesCache = new ConcurrentHashMap<>();
     public static final Map<String, List<String>> activeDistributionInfo = new ConcurrentHashMap<>();
+    public static boolean isRecoveryActive = false;
+    public static final Map<Integer, ShareDTO> collaborativeRecoveryShares = new ConcurrentHashMap<>();
+    public static byte[] restoredMasterKeyCache = null;
 
 //    @PostMapping("/setup")
 //    @PreAuthorize("hasRole('ADMIN')")
@@ -158,6 +161,116 @@ public class KeyManagementController
         socketMessage.put("status", "ENDED");
         messagingTemplate.convertAndSend("/topic/key-distribution", (Object) socketMessage);
         return ResponseEntity.ok("Đã kết thúc phân phối khóa.");
+    }
+
+    @PostMapping("/start-recovery")
+    @PreAuthorize("hasAnyRole('ADMIN', 'MANAGER')")
+    public ResponseEntity<?> startRecovery() {
+        isRecoveryActive = true;
+        collaborativeRecoveryShares.clear();
+        restoredMasterKeyCache = null;
+        Map<String, Object> socketMessage = new HashMap<>();
+        socketMessage.put("status", "RECOVERY_READY");
+        messagingTemplate.convertAndSend("/topic/key-distribution", (Object) socketMessage);
+        return ResponseEntity.ok("Đã bắt đầu phiên khôi phục.");
+    }
+
+    @PostMapping("/end-recovery")
+    @PreAuthorize("hasAnyRole('ADMIN', 'MANAGER')")
+    public ResponseEntity<?> endRecovery() {
+        isRecoveryActive = false;
+        collaborativeRecoveryShares.clear();
+        Map<String, Object> socketMessage = new HashMap<>();
+        socketMessage.put("status", "RECOVERY_ENDED");
+        messagingTemplate.convertAndSend("/topic/key-distribution", (Object) socketMessage);
+        return ResponseEntity.ok("Đã kết thúc phiên khôi phục.");
+    }
+
+    @GetMapping("/active-recovery")
+    @PreAuthorize("hasAnyRole('ADMIN', 'MANAGER')")
+    public ResponseEntity<?> getActiveRecovery() {
+        Map<String, Object> response = new HashMap<>();
+        response.put("active", isRecoveryActive);
+        response.put("count", collaborativeRecoveryShares.size());
+        return ResponseEntity.ok(response);
+    }
+
+    @PostMapping("/upload-recovery-shares")
+    @PreAuthorize("hasAnyRole('ADMIN', 'MANAGER')")
+    public ResponseEntity<?> uploadRecoveryShares(@RequestParam("files") List<MultipartFile> files) {
+        try {
+            if (!isRecoveryActive) return ResponseEntity.badRequest().body("Phiên khôi phục chưa bắt đầu.");
+            for (MultipartFile file : files) {
+                if (file.isEmpty()) continue;
+                String pemContent = new String(file.getBytes(), StandardCharsets.UTF_8);
+                ShareDTO share = KeyConverterUtil.pemContentToShare(pemContent);
+                collaborativeRecoveryShares.put(share.getX(), share);
+            }
+            Map<String, Object> socketMessage = new HashMap<>();
+            socketMessage.put("status", "RECOVERY_UPDATE");
+            socketMessage.put("count", collaborativeRecoveryShares.size());
+            messagingTemplate.convertAndSend("/topic/key-distribution", (Object) socketMessage);
+            return ResponseEntity.ok("Upload thành công!");
+        } catch (Exception e) {
+            return ResponseEntity.badRequest().body("Lỗi upload: " + e.getMessage());
+        }
+    }
+
+    @PostMapping("/execute-collaborative-recovery")
+    @PreAuthorize("hasAnyRole('ADMIN', 'MANAGER')")
+    public ResponseEntity<?> executeCollaborativeRecovery() {
+        try {
+            if (collaborativeRecoveryShares.size() < 3) {
+                return ResponseEntity.badRequest().body("Cần ít nhất 3 mảnh khóa để khôi phục!");
+            }
+            
+            List<ShareDTO> shares = new ArrayList<>(collaborativeRecoveryShares.values());
+
+            SystemConfig config = systemConfigRepository.findByConfigKey("SHAMIR_SYSTEM_SHARE_P")
+                    .orElseThrow(() -> new ResourceNotFoundException("Lỗi hệ thống: Không tìm thấy tham số P và N trong Database!"));
+
+            String[] parts = config.getConfigValue().split(":");
+            if (parts.length != 2) {
+                return ResponseEntity.status(HttpStatus.INTERNAL_SERVER_ERROR)
+                        .body("Dữ liệu cấu hình hệ thống trong Database bị sai định dạng!");
+            }
+
+            String pStrHex = parts[0];
+            String nStrHex = parts[1];
+            ShareDTO systemShare = new ShareDTO(0, pStrHex + ":" + nStrHex);
+            shares.add(systemShare);
+
+            PrivateKey key = keyService.restoreMasterKey(shares);
+
+            String restoredPemContent = KeyConverterUtil.exportPrivateKeyToPemString(key);
+            restoredMasterKeyCache = restoredPemContent.getBytes(StandardCharsets.UTF_8);
+
+            isRecoveryActive = false;
+            collaborativeRecoveryShares.clear();
+
+            Map<String, Object> socketMessage = new HashMap<>();
+            socketMessage.put("status", "RECOVERY_SUCCESS");
+            messagingTemplate.convertAndSend("/topic/key-distribution", (Object) socketMessage);
+
+            return ResponseEntity.ok("Khôi phục thành công, đang điều hướng tất cả tài khoản...");
+        } catch (Exception e) {
+            return ResponseEntity.badRequest().body("Khôi phục thất bại, nguyên nhân: " + e.getMessage());
+        }
+    }
+
+    @GetMapping("/download-restored-key")
+    @PreAuthorize("hasAnyRole('ADMIN', 'MANAGER')")
+    public ResponseEntity<?> downloadRestoredKey() {
+        if (restoredMasterKeyCache == null) {
+            return ResponseEntity.badRequest().body("Không có khóa nào được khôi phục gần đây!");
+        }
+        HttpHeaders headers = new HttpHeaders();
+        headers.setContentType(MediaType.APPLICATION_OCTET_STREAM);
+        headers.setContentDispositionFormData("attachment", "restored_master_key.pem");
+        return ResponseEntity.ok()
+                .headers(headers)
+                .contentLength(restoredMasterKeyCache.length)
+                .body(restoredMasterKeyCache);
     }
 
     @PostMapping("/claim-share")

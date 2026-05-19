@@ -108,9 +108,11 @@ public class InvoiceController
 
     @GetMapping("/security/verify")
     @PreAuthorize("hasAnyRole('ADMIN', 'MANAGER')")
-    public ResponseEntity<?> verifyChain() {
+    public ResponseEntity<?> verifyChain(
+            @RequestParam(defaultValue = "0") int page,
+            @RequestParam(defaultValue = "9") int size) {
         try {
-            return ResponseEntity.ok(invoiceSecurityService.verifyInvoiceChain());
+            return ResponseEntity.ok(invoiceSecurityService.verifyInvoiceChain(org.springframework.data.domain.PageRequest.of(page, size)));
         } catch (Exception e) {
             return ResponseEntity.status(500).body(Map.of("error", e.getMessage()));
         }
@@ -118,13 +120,16 @@ public class InvoiceController
 
     @PostMapping("/security/recover")
     @PreAuthorize("hasAnyRole('ADMIN', 'MANAGER')")
-    public ResponseEntity<?> recoverAmounts(@RequestParam("privateKeyFile") org.springframework.web.multipart.MultipartFile file) {
+    public ResponseEntity<?> recoverAmounts(
+            @RequestParam("privateKeyFile") org.springframework.web.multipart.MultipartFile file,
+            @RequestParam(defaultValue = "0") int page,
+            @RequestParam(defaultValue = "9") int size) {
         try {
             if (file.isEmpty()) {
                 return ResponseEntity.badRequest().body(Map.of("error", "File Private Key trống!"));
             }
             String privateKeyPem = new String(file.getBytes(), java.nio.charset.StandardCharsets.UTF_8);
-            return ResponseEntity.ok(invoiceSecurityService.verifyAndRecoverAmounts(privateKeyPem));
+            return ResponseEntity.ok(invoiceSecurityService.verifyAndRecoverAmounts(privateKeyPem, org.springframework.data.domain.PageRequest.of(page, size)));
         } catch (Exception e) {
             return ResponseEntity.status(500).body(Map.of("error", e.getMessage()));
         }

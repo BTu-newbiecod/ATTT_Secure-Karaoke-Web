@@ -54,7 +54,7 @@ public class KeyManagementServiceImpl implements KeyManagementService
         for (ShareDTO s : shares) {
             if (s.getX() == 0 && s.getY() != null && s.getY().contains(":")) {
                 String[] parts = s.getY().split(":");
-                s.setY(parts[0]);
+                s.setY(new BigInteger(parts[0], 16).toString());
                 n = new BigInteger(parts[1], 16);
             }
         }
