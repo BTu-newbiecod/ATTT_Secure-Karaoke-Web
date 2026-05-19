@@ -136,7 +136,7 @@ public class InvoiceController
     }
 
     @PostMapping("/security/migrate")
-    @PreAuthorize("hasAnyRole('ADMIN', 'MANAGER')")
+    @PreAuthorize("hasRole('ADMIN')")
     public ResponseEntity<?> migrateInvoices() {
         try {
             invoiceSecurityService.migrateLegacyInvoices();

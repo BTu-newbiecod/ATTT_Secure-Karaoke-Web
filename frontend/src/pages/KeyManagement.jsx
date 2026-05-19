@@ -20,6 +20,7 @@ import keyManagementApi from '../api/keyManagementApi'
 import { getAllEmployees } from '../api/employeeApi'
 import { Client } from '@stomp/stompjs'
 import SockJS from 'sockjs-client'
+import api from '../api/axios'
 
 import { useAuth } from '../context/AuthContext'
 
@@ -76,12 +77,12 @@ export default function KeyManagement() {
 
   const startStompClient = () => {
     if (stompClient) return
-    const wsUrl = import.meta.env.VITE_API_BASE_URL 
-      ? import.meta.env.VITE_API_BASE_URL.replace('/api/v1', '/ws') 
-      : 'http://localhost:8081/ws';
+    const baseUrl = api.defaults.baseURL || 'http://localhost:8081/api/v1';
+    let wsUrl = baseUrl.replace('/api/v1', '/ws').trim();
+    wsUrl = wsUrl.replace('http://', 'ws://').replace('https://', 'wss://') + '/websocket';
       
     const client = new Client({
-      webSocketFactory: () => new SockJS(wsUrl),
+      brokerURL: wsUrl,
       onConnect: () => {
         client.subscribe('/topic/key-status', (msg) => {
           const data = JSON.parse(msg.body)
@@ -136,9 +137,11 @@ export default function KeyManagement() {
   useEffect(() => {
     const checkActiveDistribution = async () => {
       try {
+        let currentActiveTab = 'split'
         const res = await keyManagementApi.getActiveDistribution()
         if (res && res.active) {
           setIsSocketActive(true)
+          currentActiveTab = 'split'
           if (res.managers) setSelectedManagers(res.managers)
           const newDownloadStatuses = {}
           if (res.downloaded) {
@@ -151,10 +154,12 @@ export default function KeyManagement() {
         const resRec = await keyManagementApi.getActiveRecovery()
         if (resRec && resRec.active) {
           setIsRecoverySocketActive(true)
+          currentActiveTab = 'restore'
           if (resRec.count !== undefined) {
              setRecoveryCount(resRec.count)
           }
         }
+        setActiveTab(currentActiveTab)
         startStompClient()
       } catch (err) {
          console.error(err)
@@ -431,29 +436,36 @@ export default function KeyManagement() {
                 ) : (
                   <>
                     {!isSocketActive && (
-                      <div>
-                        <h3 className="font-bold text-slate-900 dark:text-white text-lg mb-2">Tải lên file Master Key để phân rã</h3>
-                    <p className="text-sm text-slate-500 dark:text-slate-400 mb-4">
-                      Hệ thống sẽ đọc file .pem và chia khóa thành nhiều mảnh bí mật. Cần phân công đủ 4 Quản lý để nhận.
-                    </p>
-                    
-                    <label className="flex flex-col items-center justify-center w-full h-32 border-2 border-dashed border-indigo-200 dark:border-indigo-500/30 rounded-2xl cursor-pointer bg-indigo-50/50 dark:bg-indigo-500/5 hover:bg-indigo-50 dark:hover:bg-indigo-500/10 transition-all">
-                      <div className="flex flex-col items-center justify-center pt-5 pb-6">
-                        <FileUp className="text-indigo-400 dark:text-indigo-500 mb-2" size={24} />
-                        <p className="text-sm font-bold text-slate-700 dark:text-slate-300">
-                          {uploadedFileName ? uploadedFileName : 'Chọn file Master Key (.pem)'}
-                        </p>
-                      </div>
-                      <input
-                        type="file"
-                        accept=".pem,.txt"
-                        onChange={handleFileSelect}
-                        disabled={actionLoading !== null}
-                        className="hidden"
-                      />
-                    </label>
-                  </div>
-                )}
+                      user?.role === 'ADMIN' ? (
+                        <div>
+                          <h3 className="font-bold text-slate-900 dark:text-white text-lg mb-2">Tải lên file Master Key để phân rã</h3>
+                          <p className="text-sm text-slate-500 dark:text-slate-400 mb-4">
+                            Hệ thống sẽ đọc file .pem và chia khóa thành nhiều mảnh bí mật. Cần phân công đủ 4 Quản lý để nhận.
+                          </p>
+                          
+                          <label className="flex flex-col items-center justify-center w-full h-32 border-2 border-dashed border-indigo-200 dark:border-indigo-500/30 rounded-2xl cursor-pointer bg-indigo-50/50 dark:bg-indigo-500/5 hover:bg-indigo-50 dark:hover:bg-indigo-500/10 transition-all">
+                            <div className="flex flex-col items-center justify-center pt-5 pb-6">
+                              <FileUp className="text-indigo-400 dark:text-indigo-500 mb-2" size={24} />
+                              <p className="text-sm font-bold text-slate-700 dark:text-slate-300">
+                                {uploadedFileName ? uploadedFileName : 'Chọn file Master Key (.pem)'}
+                              </p>
+                            </div>
+                            <input
+                              type="file"
+                              accept=".pem,.txt"
+                              onChange={handleFileSelect}
+                              disabled={actionLoading !== null}
+                              className="hidden"
+                            />
+                          </label>
+                        </div>
+                      ) : (
+                        <div className="flex flex-col items-center justify-center py-12 border-2 border-dashed border-slate-200 dark:border-slate-700 rounded-3xl bg-slate-50 dark:bg-slate-800/50">
+                          <h3 className="font-bold text-slate-900 dark:text-white text-xl mb-2">Chưa có phiên phân rã nào</h3>
+                          <p className="text-sm text-slate-500 dark:text-slate-400">Vui lòng chờ Admin bắt đầu phiên phân rã khóa.</p>
+                        </div>
+                      )
+                    )}
 
                 {selectedFile && !isSocketActive && (
                   <div className="mt-8">
@@ -515,6 +527,7 @@ export default function KeyManagement() {
                         {selectedManagers.map((username, idx) => {
                             const manager = managers.find(m => m.username === username);
                             const isDownloaded = downloadStatuses[username] === 'DOWNLOADED';
+                            const isCurrentUser = user?.name === manager?.name || user?.username === username;
                             return (
                                 <div key={idx} className={`p-4 rounded-2xl border ${isDownloaded ? 'bg-emerald-50 border-emerald-200' : 'bg-slate-50 border-slate-200'} flex flex-col gap-3 transition-colors`}>
                                     <div className="flex items-center justify-between">
@@ -536,21 +549,29 @@ export default function KeyManagement() {
                                     </div>
                                     {!isDownloaded && (
                                         <div className="flex items-center gap-2 mt-2 pt-3 border-t border-slate-200/60 dark:border-slate-700">
-                                            <input 
-                                                type="text" 
-                                                maxLength={6} 
-                                                placeholder="Mã 2FA..." 
-                                                value={otps[username] || ''}
-                                                onChange={e => setOtps(prev => ({...prev, [username]: e.target.value}))}
-                                                className="w-full px-3 py-1.5 bg-white dark:bg-slate-800 border border-slate-200 dark:border-slate-600 rounded-lg text-sm text-center tracking-widest font-mono outline-none focus:border-indigo-500"
-                                            />
-                                            <button 
-                                                onClick={() => handleDownloadFromAdmin(username)}
-                                                disabled={downloadingUser === username || (otps[username] || '').length < 6}
-                                                className="shrink-0 bg-indigo-100 hover:bg-indigo-200 text-indigo-700 px-3 py-1.5 rounded-lg text-sm font-bold transition-colors disabled:opacity-50"
-                                            >
-                                                {downloadingUser === username ? <Loader2 size={16} className="animate-spin"/> : 'Tải về'}
-                                            </button>
+                                            {(user?.role === 'ADMIN' || isCurrentUser) ? (
+                                                <>
+                                                    <input 
+                                                        type="text" 
+                                                        maxLength={6} 
+                                                        placeholder="Mã 2FA..." 
+                                                        value={otps[username] || ''}
+                                                        onChange={e => setOtps(prev => ({...prev, [username]: e.target.value}))}
+                                                        className="w-full px-3 py-1.5 bg-white dark:bg-slate-800 border border-slate-200 dark:border-slate-600 rounded-lg text-sm text-center tracking-widest font-mono outline-none focus:border-indigo-500"
+                                                    />
+                                                    <button 
+                                                        onClick={() => handleDownloadFromAdmin(username)}
+                                                        disabled={downloadingUser === username || (otps[username] || '').length < 6}
+                                                        className="shrink-0 bg-indigo-100 hover:bg-indigo-200 text-indigo-700 px-3 py-1.5 rounded-lg text-sm font-bold transition-colors disabled:opacity-50"
+                                                    >
+                                                        {downloadingUser === username ? <Loader2 size={16} className="animate-spin"/> : 'Tải về'}
+                                                    </button>
+                                                </>
+                                            ) : (
+                                                <div className="text-xs text-slate-500 text-center w-full py-1.5">
+                                                    Đang chờ Quản lý nhập 2FA
+                                                </div>
+                                            )}
                                         </div>
                                     )}
                                 </div>
@@ -571,11 +592,11 @@ export default function KeyManagement() {
                 {!isRecoverySocketActive ? (
                   <div className="flex flex-col items-center justify-center py-12 border-2 border-dashed border-slate-200 dark:border-slate-700 rounded-3xl bg-slate-50 dark:bg-slate-800/50">
                     <ShieldCheck className="text-indigo-400 mb-4" size={48} />
-                    <h3 className="font-bold text-slate-900 dark:text-white text-xl mb-2">Bắt đầu phiên khôi phục</h3>
+                    <h3 className="font-bold text-slate-900 dark:text-white text-xl mb-2">{user?.role === 'ADMIN' ? 'Bắt đầu phiên khôi phục' : 'Chưa có phiên khôi phục nào'}</h3>
                     <p className="text-sm text-slate-500 dark:text-slate-400 mb-6 text-center max-w-md">
-                      Mở phiên khôi phục để các Quản lý có thể chọn mảnh khóa. Cần ít nhất 3 mảnh để khôi phục Master Key thành công.
+                      {user?.role === 'ADMIN' ? 'Mở phiên khôi phục để các Quản lý có thể chọn mảnh khóa. Cần ít nhất 3 mảnh để khôi phục Master Key thành công.' : 'Vui lòng chờ Admin mở phiên khôi phục.'}
                     </p>
-                    {(user?.role === 'ADMIN' || user?.role === 'MANAGER') && (
+                    {user?.role === 'ADMIN' && (
                         <button
                         onClick={handleStartRecovery}
                         className="flex items-center gap-2 bg-gradient-to-r from-indigo-600 to-blue-700 hover:from-indigo-700 hover:to-blue-800 text-white font-bold py-3 px-8 rounded-xl transition-all shadow-md shadow-indigo-500/20"
@@ -594,7 +615,7 @@ export default function KeyManagement() {
                                 Tải lên ít nhất 3 file mảnh khóa (.pem) để khôi phục Master Key.
                             </p>
                         </div>
-                        {(user?.role === 'ADMIN' || user?.role === 'MANAGER') && (
+                        {user?.role === 'ADMIN' && (
                             <button onClick={handleEndRecovery} className="bg-red-50 hover:bg-red-100 text-red-600 border border-red-200 px-4 py-2 rounded-lg text-sm font-bold transition-colors shadow-sm w-full sm:w-auto">
                                 Kết thúc
                             </button>
@@ -639,20 +660,22 @@ export default function KeyManagement() {
                         </div>
                     )}
 
-                    <div className="flex justify-end pt-4">
-                    <button
-                        onClick={handleRestore}
-                        disabled={actionLoading === 'restore' || recoveryCount < 3}
-                        className="w-full sm:w-auto flex items-center justify-center gap-2 bg-gradient-to-r from-indigo-600 to-blue-700 hover:from-indigo-700 hover:to-blue-800 text-white font-bold py-2.5 px-6 rounded-xl transition-all shadow-md shadow-indigo-500/20 disabled:opacity-50 text-sm"
-                    >
-                        {actionLoading === 'restore' ? (
-                        <Loader2 className="animate-spin" size={16} />
-                        ) : (
-                        <Unlock size={16} />
-                        )}
-                        Thực hiện khôi phục
-                    </button>
-                    </div>
+                    {user?.role === 'ADMIN' && (
+                      <div className="flex justify-end pt-4">
+                        <button
+                            onClick={handleRestore}
+                            disabled={actionLoading === 'restore' || recoveryCount < 3}
+                            className="w-full sm:w-auto flex items-center justify-center gap-2 bg-gradient-to-r from-indigo-600 to-blue-700 hover:from-indigo-700 hover:to-blue-800 text-white font-bold py-2.5 px-6 rounded-xl transition-all shadow-md shadow-indigo-500/20 disabled:opacity-50 text-sm"
+                        >
+                            {actionLoading === 'restore' ? (
+                            <Loader2 className="animate-spin" size={16} />
+                            ) : (
+                            <Unlock size={16} />
+                            )}
+                            Thực hiện khôi phục
+                        </button>
+                      </div>
+                    )}
                   </>
                 )}
               </div>

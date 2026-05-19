@@ -193,11 +193,10 @@ public class InvoiceSecurityServiceImpl implements InvoiceSecurityService {
                 isUpdated = true;
             }
 
-            if (invoice.getEncryptedAmount() == null || invoice.getEncryptedAmount().trim().isEmpty()) {
-                String encryptedAmt = CryptoUtils.rsaEncrypt(invoice.getTotalPrice().toPlainString(), publicKey);
-                invoice.setEncryptedAmount(encryptedAmt);
-                isUpdated = true;
-            }
+            // Force re-encrypt to ensure all invoices use the LATEST public key
+            String encryptedAmt = CryptoUtils.rsaEncrypt(invoice.getTotalPrice().toPlainString(), publicKey);
+            invoice.setEncryptedAmount(encryptedAmt);
+            isUpdated = true;
 
             if (isUpdated) {
                 invoiceRepository.save(invoice);

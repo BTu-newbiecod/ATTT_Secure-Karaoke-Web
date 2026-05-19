@@ -164,7 +164,7 @@ public class KeyManagementController
     }
 
     @PostMapping("/start-recovery")
-    @PreAuthorize("hasAnyRole('ADMIN', 'MANAGER')")
+    @PreAuthorize("hasRole('ADMIN')")
     public ResponseEntity<?> startRecovery() {
         isRecoveryActive = true;
         collaborativeRecoveryShares.clear();
@@ -176,7 +176,7 @@ public class KeyManagementController
     }
 
     @PostMapping("/end-recovery")
-    @PreAuthorize("hasAnyRole('ADMIN', 'MANAGER')")
+    @PreAuthorize("hasRole('ADMIN')")
     public ResponseEntity<?> endRecovery() {
         isRecoveryActive = false;
         collaborativeRecoveryShares.clear();
@@ -217,7 +217,7 @@ public class KeyManagementController
     }
 
     @PostMapping("/execute-collaborative-recovery")
-    @PreAuthorize("hasAnyRole('ADMIN', 'MANAGER')")
+    @PreAuthorize("hasRole('ADMIN')")
     public ResponseEntity<?> executeCollaborativeRecovery() {
         try {
             if (collaborativeRecoveryShares.size() < 3) {

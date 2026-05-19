@@ -16,8 +16,10 @@ import {
   ListFilter
 } from 'lucide-react'
 import invoiceSecurityApi from '../api/invoiceSecurityApi'
+import { useAuth } from '../context/AuthContext'
 
 export default function InvoiceSecurity() {
+  const { user } = useAuth()
   const location = useLocation()
   const navigate = useNavigate()
   const [loading, setLoading] = useState(false)
@@ -31,6 +33,9 @@ export default function InvoiceSecurity() {
   const [recoverReport, setRecoverReport] = useState([])
   const [recoverPageInfo, setRecoverPageInfo] = useState({ number: 0, totalPages: 0, totalElements: 0 })
   const [privateKeyFile, setPrivateKeyFile] = useState(null)
+  
+  const [generateKeyOtp, setGenerateKeyOtp] = useState('')
+  const [migrateOtp, setMigrateOtp] = useState('')
 
   const [uploadedFileName, setUploadedFileName] = useState('')
   const [statusMessage, setStatusMessage] = useState(null) // { type: 'success'|'error', text: '' }
@@ -175,8 +180,8 @@ export default function InvoiceSecurity() {
     } finally {
       setActionLoading(null)
       // Reset file input value to allow uploading same file again
-      if (e && e.target && e.target.value !== undefined) {
-        e.target.value = ''
+      if (eOrFile && eOrFile.target && eOrFile.target.value !== undefined) {
+        eOrFile.target.value = ''
       }
     }
   }
@@ -224,52 +229,76 @@ export default function InvoiceSecurity() {
         <div className="lg:col-span-1 space-y-6">
 
           {/* Card 1: Keypair Operations */}
+          {user?.role === 'ADMIN' && (
           <div className="bg-white dark:bg-slate-900 border border-slate-100 dark:border-slate-800 p-6 rounded-3xl shadow-sm">
             <h3 className="font-bold text-slate-900 dark:text-white mb-4 flex items-center gap-2">
               <Key size={18} className="text-emerald-500" /> Quản lý Khóa RSA
             </h3>
             <p className="text-xs text-slate-500 dark:text-slate-400 leading-relaxed mb-5">
-
+              Để bảo vệ an toàn cho hệ thống hóa đơn, vui lòng nhập mã 2FA để tiến hành sinh khóa RSA mới.
             </p>
-            <div className="flex items-center gap-2 mb-4 bg-emerald-500/5 border border-emerald-500/20 px-3.5 py-2.5 rounded-xl">
-              <CheckCircle2 size={16} className="text-emerald-500" />
-              <span className="text-xs font-bold text-emerald-600 dark:text-emerald-400">Public Key trên server: ĐÃ BẬT</span>
-            </div>
-            <button
-              onClick={handleGenerateKeys}
-              disabled={actionLoading !== null}
-              className="w-full flex items-center justify-center gap-2 bg-gradient-to-r from-emerald-600 to-emerald-700 hover:from-emerald-700 hover:to-emerald-800 text-white font-bold py-3 px-4 rounded-xl transition-all shadow-md shadow-emerald-500/10 disabled:opacity-50 text-sm"
-            >
-              {actionLoading === 'keys' ? (
-                <Loader2 className="animate-spin" size={16} />
-              ) : (
-                <Download size={16} />
-              )}
-              Sinh cặp khóa RSA mới
-            </button>
+            
+            <input 
+              type="text" 
+              maxLength={6} 
+              placeholder="Nhập mã 2FA..." 
+              value={generateKeyOtp}
+              onChange={e => setGenerateKeyOtp(e.target.value)}
+              className="w-full px-4 py-2.5 mb-4 bg-slate-50 dark:bg-slate-800 border border-slate-200 dark:border-slate-700 rounded-xl text-sm text-center tracking-widest outline-none focus:border-emerald-500"
+            />
+
+            {generateKeyOtp.length >= 6 && (
+              <button
+                onClick={handleGenerateKeys}
+                disabled={actionLoading !== null}
+                className="w-full flex items-center justify-center gap-2 bg-gradient-to-r from-emerald-600 to-emerald-700 hover:from-emerald-700 hover:to-emerald-800 text-white font-bold py-3 px-4 rounded-xl transition-all shadow-md shadow-emerald-500/10 disabled:opacity-50 text-sm"
+              >
+                {actionLoading === 'keys' ? (
+                  <Loader2 className="animate-spin" size={16} />
+                ) : (
+                  <Download size={16} />
+                )}
+                Sinh cặp khóa RSA mới
+              </button>
+            )}
           </div>
+          )}
 
           {/* Card 2: Legacy Migration */}
+          {user?.role === 'ADMIN' && (
           <div className="bg-white dark:bg-slate-900 border border-slate-100 dark:border-slate-800 p-6 rounded-3xl shadow-sm">
             <h3 className="font-bold text-slate-900 dark:text-white mb-4 flex items-center gap-2">
               <Database size={18} className="text-teal-500" /> Di trú Dữ liệu Hóa đơn cũ
             </h3>
             <p className="text-xs text-slate-500 dark:text-slate-400 leading-relaxed mb-5">
-              Tính toán băm chuỗi Blockchain và mã hóa RSA cho toàn bộ hóa đơn lịch sử.
+              Tính toán băm chuỗi Blockchain và mã hóa RSA cho toàn bộ hóa đơn lịch sử. Vui lòng nhập mã 2FA để tiếp tục.
             </p>
-            <button
-              onClick={handleMigrate}
-              disabled={actionLoading !== null}
-              className="w-full flex items-center justify-center gap-2 bg-slate-100 dark:bg-slate-800 hover:bg-slate-200 dark:hover:bg-slate-700 text-slate-800 dark:text-slate-200 font-bold py-3 px-4 rounded-xl transition-colors disabled:opacity-50 text-sm border border-slate-200 dark:border-slate-700"
-            >
-              {actionLoading === 'migrate' ? (
-                <Loader2 className="animate-spin" size={16} />
-              ) : (
-                <RefreshCw size={16} />
-              )}
-              Di trú & Bảo mật toàn bộ HĐ cũ
-            </button>
+            
+            <input 
+              type="text" 
+              maxLength={6} 
+              placeholder="Nhập mã 2FA..." 
+              value={migrateOtp}
+              onChange={e => setMigrateOtp(e.target.value)}
+              className="w-full px-4 py-2.5 mb-4 bg-slate-50 dark:bg-slate-800 border border-slate-200 dark:border-slate-700 rounded-xl text-sm text-center tracking-widest outline-none focus:border-teal-500"
+            />
+            
+            {migrateOtp.length >= 6 && (
+              <button
+                onClick={handleMigrate}
+                disabled={actionLoading !== null}
+                className="w-full flex items-center justify-center gap-2 bg-slate-100 dark:bg-slate-800 hover:bg-slate-200 dark:hover:bg-slate-700 text-slate-800 dark:text-slate-200 font-bold py-3 px-4 rounded-xl transition-colors disabled:opacity-50 text-sm border border-slate-200 dark:border-slate-700"
+              >
+                {actionLoading === 'migrate' ? (
+                  <Loader2 className="animate-spin" size={16} />
+                ) : (
+                  <RefreshCw size={16} />
+                )}
+                Di trú & Bảo mật toàn bộ HĐ cũ
+              </button>
+            )}
           </div>
+          )}
 
           {/* Card 3: Recover Upload private key */}
           <div className="bg-white dark:bg-slate-900 border border-slate-100 dark:border-slate-800 p-6 rounded-3xl shadow-sm">
