@@ -4,7 +4,12 @@ import react from '@vitejs/plugin-react'
 // https://vite.dev/config/
 export default defineConfig({
   plugins: [react()],
+  define: {
+    global: 'window',
+  },
   server: {
-    allowedHosts: ['batubatu.id.vn', 'api.batubatu.id.vn']
+    allowedHosts: [
+      '.trycloudflare.com','batubatu.id.vn', 'api.batubatu.id.vn'
+    ]
   }
 })
