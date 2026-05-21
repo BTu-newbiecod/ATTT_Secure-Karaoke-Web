@@ -6,6 +6,9 @@ import com.karaoke.backend.dto.response.InvoiceDetailResponse;
 import com.karaoke.backend.dto.response.InvoiceSummaryResponse;
 import com.karaoke.backend.service.InvoiceService;
 import com.karaoke.backend.security.service.InvoiceSecurityService;
+import com.karaoke.backend.security.service.TwoFactorService;
+import com.karaoke.backend.service.AccountManagementService;
+import com.karaoke.backend.entity.Account;
 import lombok.RequiredArgsConstructor;
 import org.springframework.data.domain.Page;
 import org.springframework.format.annotation.DateTimeFormat;
@@ -15,6 +18,7 @@ import org.springframework.web.bind.annotation.*;
 
 import java.time.LocalDate;
 import java.util.Map;
+import java.security.Principal;
 
 @RestController
 @RequestMapping("/api/v1/invoices")
@@ -23,6 +27,8 @@ public class InvoiceController
 {
     private final InvoiceService invoiceService;
     private final InvoiceSecurityService invoiceSecurityService;
+    private final AccountManagementService accountService;
+    private final TwoFactorService totpService;
 
     @GetMapping
     @PreAuthorize("hasAnyRole('ADMIN', 'MANAGER', 'RECEPTIONIST')")
@@ -90,10 +96,26 @@ public class InvoiceController
         }
     }
 
+    private void validate2Fa(Principal principal, String otp) {
+        if (otp == null || otp.trim().isEmpty()) {
+            throw new IllegalArgumentException("Vui lòng nhập mã OTP!");
+        }
+        String username = principal.getName();
+        Account account = accountService.findByUsername(username);
+        if (account == null || account.getTotpSecretKey() == null) {
+            throw new IllegalArgumentException("Tài khoản chưa được cấu hình bảo mật 2FA!");
+        }
+        boolean isOtpValid = totpService.verifyCode(account.getTotpSecretKey(), otp);
+        if (!isOtpValid) {
+            throw new IllegalArgumentException("Mã xác thực không đúng hoặc đã hết hạn!");
+        }
+    }
+
     @PostMapping("/security/generate-keys")
     @PreAuthorize("hasRole('ADMIN')")
-    public ResponseEntity<?> generateKeys() {
+    public ResponseEntity<?> generateKeys(@RequestParam("otp") String otp, Principal principal) {
         try {
+            validate2Fa(principal, otp);
             String privateKeyPem = invoiceSecurityService.generateKeyPair();
             byte[] data = privateKeyPem.getBytes(java.nio.charset.StandardCharsets.UTF_8);
             org.springframework.http.HttpHeaders headers = new org.springframework.http.HttpHeaders();
@@ -101,6 +123,8 @@ public class InvoiceController
             headers.add(org.springframework.http.HttpHeaders.CONTENT_TYPE, "application/x-pem-file");
 
             return new ResponseEntity<>(data, headers, org.springframework.http.HttpStatus.OK);
+        } catch (IllegalArgumentException e) {
+            return ResponseEntity.status(401).body(Map.of("error", e.getMessage()));
         } catch (Exception e) {
             return ResponseEntity.status(500).body(Map.of("error", e.getMessage()));
         }
@@ -137,10 +161,13 @@ public class InvoiceController
 
     @PostMapping("/security/migrate")
     @PreAuthorize("hasRole('ADMIN')")
-    public ResponseEntity<?> migrateInvoices() {
+    public ResponseEntity<?> migrateInvoices(@RequestParam("otp") String otp, Principal principal) {
         try {
+            validate2Fa(principal, otp);
             invoiceSecurityService.migrateLegacyInvoices();
             return ResponseEntity.ok(Map.of("message", "Đã di trú và bảo mật thành công toàn bộ hóa đơn cũ!"));
+        } catch (IllegalArgumentException e) {
+            return ResponseEntity.status(401).body(Map.of("error", e.getMessage()));
         } catch (Exception e) {
             return ResponseEntity.status(500).body(Map.of("error", e.getMessage()));
         }

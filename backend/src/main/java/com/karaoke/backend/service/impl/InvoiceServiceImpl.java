@@ -7,6 +7,7 @@ import com.karaoke.backend.exception.ResourceNotFoundException;
 import com.karaoke.backend.repository.InvoiceRepository;
 import com.karaoke.backend.repository.RoomPriceRepository;
 import com.karaoke.backend.repository.RoomPriceSpecialRepository;
+import com.karaoke.backend.repository.SystemConfigRepository;
 import com.karaoke.backend.service.InvoiceService;
 import com.karaoke.backend.service.KaraokePricingEngine;
 import jakarta.transaction.Transactional;
@@ -33,6 +34,7 @@ public class InvoiceServiceImpl implements InvoiceService
     private final KaraokePricingEngine pricingEngine;
     private final RoomPriceRepository roomPriceRepository;
     private final RoomPriceSpecialRepository roomPriceSpecialRepository;
+    private final SystemConfigRepository systemConfigRepository;
 
     @Override
     @Transactional
@@ -222,7 +224,7 @@ public class InvoiceServiceImpl implements InvoiceService
             return;
         }
 
-        LocalDateTime now = LocalDateTime.now();
+        LocalDateTime now = LocalDateTime.now().withNano(0);
 
         BigDecimal totalRoomPrice = BigDecimal.ZERO;
         for (com.karaoke.backend.entity.BookingRoom br : invoice.getBooking().getBookingRooms())
@@ -284,58 +286,60 @@ public class InvoiceServiceImpl implements InvoiceService
         invoice.setStatus(Invoice.InvoiceStatus.PAID);
         invoice.setPaidAt(now);
 
-        // --- CRYPTOGRAPHIC INTEGRITY & SECURITY ---
-        // 1. Calculate Chaining Hash (SHA-256)
+        // Calculate Chaining Hash (SHA-256)
         String previousHash = "secure-karaoke-genesis-hash-value-00000000000000000";
-        List<Invoice> lastPaid = invoiceRepository.findTop5ByStatusOrderByPaidAtDesc(Invoice.InvoiceStatus.PAID);
-        if (lastPaid != null && !lastPaid.isEmpty()) {
-            for (Invoice prev : lastPaid) {
-                if (!prev.getId().equals(invoice.getId()) && prev.getHashValue() != null) {
-                    previousHash = prev.getHashValue();
-                    break;
-                }
-            }
+        Invoice prevInvoice = invoiceRepository.findFirstByStatusAndIdLessThanOrderByIdDesc(
+                Invoice.InvoiceStatus.PAID, invoice.getId()
+        );
+        if (prevInvoice != null && prevInvoice.getHashValue() != null) {
+            previousHash = prevInvoice.getHashValue();
         }
 
-        String dataStr = String.format("%d|%d|%s|%s|%s|%s|%s",
+        String dataStr = String.format(java.util.Locale.US, "%d|%d|%.2f|%.2f|%.2f|%.2f|%s",
                 invoice.getId(),
                 invoice.getBooking().getId(),
-                invoice.getRoomPrice() != null ? invoice.getRoomPrice().toPlainString() : "0.00",
-                invoice.getServicePrice() != null ? invoice.getServicePrice().toPlainString() : "0.00",
-                invoice.getDiscount() != null ? invoice.getDiscount().toPlainString() : "0.00",
-                invoice.getTotalPrice() != null ? invoice.getTotalPrice().toPlainString() : "0.00",
-                invoice.getPaidAt() != null ? invoice.getPaidAt().toString() : ""
+                invoice.getRoomPrice() != null ? invoice.getRoomPrice() : BigDecimal.ZERO,
+                invoice.getServicePrice() != null ? invoice.getServicePrice() : BigDecimal.ZERO,
+                invoice.getDiscount() != null ? invoice.getDiscount() : BigDecimal.ZERO,
+                invoice.getTotalPrice() != null ? invoice.getTotalPrice() : BigDecimal.ZERO,
+                invoice.getPaidAt() != null ? invoice.getPaidAt().format(java.time.format.DateTimeFormatter.ofPattern("yyyy-MM-dd'T'HH:mm:ss")) : ""
         );
         String currentHash = com.karaoke.backend.util.CryptoUtils.sha256(dataStr + previousHash);
+        
+//        System.out.println("====== DEBUG [markAsPaid] ======");
+//        System.out.println("Invoice ID: " + invoice.getId());
+//        System.out.println("Booking ID: " + invoice.getBooking().getId());
+//        System.out.println("Room Price: " + invoice.getRoomPrice());
+//        System.out.println("Service Price: " + invoice.getServicePrice());
+//        System.out.println("Discount: " + invoice.getDiscount());
+//        System.out.println("Total Price: " + invoice.getTotalPrice());
+//        System.out.println("Paid At (Raw): " + invoice.getPaidAt());
+//        System.out.println("Paid At (Formatted): " + (invoice.getPaidAt() != null ? invoice.getPaidAt().format(java.time.format.DateTimeFormatter.ofPattern("yyyy-MM-dd'T'HH:mm:ss")) : ""));
+//        System.out.println("dataStr: " + dataStr);
+//        System.out.println("previousHash: " + previousHash);
+//        System.out.println("currentHash: " + currentHash);
+//        System.out.println("=================================");
+
         invoice.setHashValue(currentHash);
 
-        // 2. RSA Encryption of Total Amount
+        // RSA Encryption of Total Amount
         try {
-            java.io.File keyFile = new java.io.File("keys/public_key.pem");
-            java.security.PublicKey publicKey;
-            if (!keyFile.exists()) {
-                // Self-bootstrap key generation if public_key.pem doesn't exist
-                java.security.KeyPair kp = com.karaoke.backend.util.CryptoUtils.generateRsaKeyPair();
-                String pubPem = com.karaoke.backend.util.CryptoUtils.getPublicKeyPem(kp.getPublic());
-                String privPem = com.karaoke.backend.util.CryptoUtils.getPrivateKeyPem(kp.getPrivate());
-                keyFile.getParentFile().mkdirs();
-                java.nio.file.Files.writeString(keyFile.toPath(), pubPem, java.nio.charset.StandardCharsets.UTF_8);
+            SystemConfig config = systemConfigRepository.findByConfigKey("RSA_MASTER_PUBLIC_KEY")
+                    .orElseThrow(() -> new BusinessException("Không tìm thấy khóa công khai hệ thống (RSA_MASTER_PUBLIC_KEY) trong database! Vui lòng khởi tạo cặp khóa trong mục Quản lý khóa trước."));
 
-                java.io.File privFile = new java.io.File("keys/private_key_backup.pem");
-                java.nio.file.Files.writeString(privFile.toPath(), privPem, java.nio.charset.StandardCharsets.UTF_8);
-
-                publicKey = kp.getPublic();
-            } else {
-                String pubPem = java.nio.file.Files.readString(keyFile.toPath(), java.nio.charset.StandardCharsets.UTF_8);
-                publicKey = com.karaoke.backend.util.CryptoUtils.parsePublicKeyPem(pubPem);
+            String pubKeyPem = config.getConfigValue();
+            if (pubKeyPem == null || pubKeyPem.trim().isEmpty()) {
+                throw new BusinessException("Khóa công khai hệ thống (RSA_MASTER_PUBLIC_KEY) trống rỗng! Vui lòng khởi tạo lại khóa.");
             }
 
+            java.security.PublicKey publicKey = com.karaoke.backend.util.CryptoUtils.parsePublicKeyPem(pubKeyPem);
             String encryptedAmt = com.karaoke.backend.util.CryptoUtils.rsaEncrypt(invoice.getTotalPrice().toPlainString(), publicKey);
             invoice.setEncryptedAmount(encryptedAmt);
+        } catch (BusinessException e) {
+            throw e;
         } catch (Exception e) {
             throw new RuntimeException("Lỗi mã hóa bảo mật số tiền hóa đơn bằng RSA: " + e.getMessage(), e);
         }
-        // ------------------------------------------
 
         invoiceRepository.save(invoice);
     }

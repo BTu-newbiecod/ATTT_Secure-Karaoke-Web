@@ -1,8 +1,8 @@
 import axiosClient from './axiosClient';
 
 const invoiceSecurityApi = {
-    generateKeys: () => axiosClient.post('/invoices/security/generate-keys', {}, { responseType: 'blob' }),
-    migrateInvoices: () => axiosClient.post('/invoices/security/migrate'),
+    generateKeys: (otp) => axiosClient.post(`/invoices/security/generate-keys?otp=${otp}`, {}, { responseType: 'blob' }),
+    migrateInvoices: (otp) => axiosClient.post(`/invoices/security/migrate?otp=${otp}`),
     verifyChain: (page = 0) => axiosClient.get(`/invoices/security/verify?page=${page}&size=9`),
     recoverAmounts: (file, page = 0) => {
         const formData = new FormData();

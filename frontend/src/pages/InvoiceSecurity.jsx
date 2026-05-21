@@ -55,7 +55,7 @@ export default function InvoiceSecurity() {
     try {
       setActionLoading('keys')
       setStatusMessage(null)
-      const blob = await invoiceSecurityApi.generateKeys()
+      const blob = await invoiceSecurityApi.generateKeys(generateKeyOtp)
 
       const file = new File([blob], 'private_key.pem', { type: 'application/x-pem-file' })
 
@@ -63,14 +63,28 @@ export default function InvoiceSecurity() {
         type: 'success',
         text: 'Đã sinh cặp khóa RSA mới thành công! Khóa công khai đã được cài đặt trên Server, đang chuyển hướng sang trang Phân rã khóa...'
       })
+      setGenerateKeyOtp('')
 
       setTimeout(() => {
         navigate('/security/keys', { state: { generatedKeyFile: file } })
       }, 1000)
     } catch (error) {
+      let errMsg = error.message
+      if (error.response?.data instanceof Blob) {
+        try {
+          const text = await error.response.data.text()
+          const parsed = JSON.parse(text)
+          errMsg = parsed.error || parsed.message || text
+        } catch (e) {
+          // ignore parsing error
+        }
+      } else {
+        errMsg = error.response?.data?.error || error.response?.data?.message || error.message
+      }
+
       setStatusMessage({
         type: 'error',
-        text: 'Không thể sinh cặp khóa bảo mật mới: ' + error.message
+        text: 'Không thể sinh cặp khóa bảo mật mới: ' + errMsg
       })
       setActionLoading(null)
     }
@@ -81,19 +95,21 @@ export default function InvoiceSecurity() {
     try {
       setActionLoading('migrate')
       setStatusMessage(null)
-      const res = await invoiceSecurityApi.migrateInvoices()
+      const res = await invoiceSecurityApi.migrateInvoices(migrateOtp)
       setStatusMessage({
         type: 'success',
         text: res.message || 'Đã di trú bảo mật thành công cho toàn bộ hóa đơn cũ!'
       })
+      setMigrateOtp('')
       // Automatically refresh verification chain if they are in verification view
       if (verifyReport.length > 0) {
         handleVerifyChain()
       }
     } catch (error) {
+      const errMsg = error.response?.data?.error || error.response?.data?.message || error.message
       setStatusMessage({
         type: 'error',
-        text: 'Di trú hóa đơn thất bại: ' + error.message
+        text: 'Di trú hóa đơn thất bại: ' + errMsg
       })
     } finally {
       setActionLoading(null)

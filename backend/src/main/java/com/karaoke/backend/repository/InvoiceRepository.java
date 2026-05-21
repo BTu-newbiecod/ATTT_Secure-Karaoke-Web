@@ -19,6 +19,7 @@ public interface InvoiceRepository extends JpaRepository<Invoice, Integer> {
             "AND i.paidAt >= CURRENT_DATE")
     BigDecimal sumTodayRevenue();
     List<Invoice> findTop5ByStatusOrderByPaidAtDesc(Invoice.InvoiceStatus status);
+    Invoice findFirstByStatusAndIdLessThanOrderByIdDesc(Invoice.InvoiceStatus status, Integer id);
 
     @Query("SELECT " +
             "DAYNAME(i.paidAt), SUM(i.totalPrice) " +

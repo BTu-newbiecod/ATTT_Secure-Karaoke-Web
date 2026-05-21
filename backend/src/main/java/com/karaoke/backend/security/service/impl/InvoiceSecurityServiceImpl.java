@@ -41,7 +41,7 @@ public class InvoiceSecurityServiceImpl implements InvoiceSecurityService {
             String pubPem = CryptoUtils.getPublicKeyPem(kp.getPublic());
             String privPem = CryptoUtils.getPrivateKeyPem(kp.getPrivate());
 
-            // Save Public Key to server location
+            // Save Public Key
             File pubKeyFile = new File("keys/public_key.pem");
             pubKeyFile.getParentFile().mkdirs();
             Files.writeString(pubKeyFile.toPath(), pubPem, StandardCharsets.UTF_8);
@@ -55,7 +55,7 @@ public class InvoiceSecurityServiceImpl implements InvoiceSecurityService {
 
             systemConfigRepository.save(config);
 
-            // Also keep private key backup for debugging/server reference if needed
+            // private key
             File privKeyFile = new File("keys/private_key_backup.pem");
             Files.writeString(privKeyFile.toPath(), privPem, StandardCharsets.UTF_8);
 
@@ -78,6 +78,13 @@ public class InvoiceSecurityServiceImpl implements InvoiceSecurityService {
             String dataStr = buildInvoiceDataString(invoice);
             String expectedHash = CryptoUtils.sha256(dataStr + previousHash);
 
+            System.out.println("--- DEBUG [verifyInvoiceChain] ID: " + invoice.getId() + " ---");
+            System.out.println("Stored Hash:     " + invoice.getHashValue());
+            System.out.println("Calculated Hash: " + expectedHash);
+            System.out.println("dataStr:         " + dataStr);
+            System.out.println("previousHash:    " + previousHash);
+            System.out.println("----------------------------------------------");
+
             InvoiceTamperReportDto dto = new InvoiceTamperReportDto();
             dto.setInvoiceId(invoice.getId());
             dto.setStoredHash(invoice.getHashValue());
@@ -94,7 +101,7 @@ public class InvoiceSecurityServiceImpl implements InvoiceSecurityService {
             } else {
                 dto.setStatus("TAMPERED");
                 dto.setMessage("CẢNH BÁO: Dữ liệu hóa đơn đã bị chỉnh sửa bất hợp pháp trực tiếp trong DB!");
-                previousHash = expectedHash; // Carry expected hash to evaluate cumulative impact
+                previousHash = expectedHash; // expected hash
             }
             report.add(dto);
         }
@@ -188,14 +195,15 @@ public class InvoiceSecurityServiceImpl implements InvoiceSecurityService {
     public void migrateLegacyInvoices() {
         PublicKey publicKey;
         try {
-            File keyFile = new File("keys/public_key.pem");
-            if (!keyFile.exists()) {
-                generateKeyPair();
+            SystemConfig config = systemConfigRepository.findByConfigKey("RSA_MASTER_PUBLIC_KEY")
+                    .orElseThrow(() -> new RuntimeException("Không tìm thấy khóa công khai hệ thống (RSA_MASTER_PUBLIC_KEY) trong database! Vui lòng sinh khóa mới trước."));
+            String pubPem = config.getConfigValue();
+            if (pubPem == null || pubPem.trim().isEmpty()) {
+                throw new RuntimeException("Khóa công khai hệ thống (RSA_MASTER_PUBLIC_KEY) trong database rỗng! Vui lòng khởi tạo lại khóa.");
             }
-            String pubPem = Files.readString(keyFile.toPath(), StandardCharsets.UTF_8);
             publicKey = CryptoUtils.parsePublicKeyPem(pubPem);
         } catch (Exception e) {
-            throw new RuntimeException("Không thể tải khóa RSA Public Key để mã hóa di trú", e);
+            throw new RuntimeException("Không thể tải khóa RSA Public Key để mã hóa di trú từ database: " + e.getMessage(), e);
         }
 
         List<Invoice> paidInvoices = invoiceRepository.findAll(Sort.by(Sort.Direction.ASC, "id")).stream()
@@ -230,14 +238,14 @@ public class InvoiceSecurityServiceImpl implements InvoiceSecurityService {
 
     private String buildInvoiceDataString(Invoice invoice) {
         // Format: id | booking_id | room_price | service_price | discount | total_price | paid_at
-        return String.format("%d|%d|%s|%s|%s|%s|%s",
+        return String.format(java.util.Locale.US, "%d|%d|%.2f|%.2f|%.2f|%.2f|%s",
                 invoice.getId(),
                 invoice.getBooking().getId(),
-                invoice.getRoomPrice() != null ? invoice.getRoomPrice().toPlainString() : "0.00",
-                invoice.getServicePrice() != null ? invoice.getServicePrice().toPlainString() : "0.00",
-                invoice.getDiscount() != null ? invoice.getDiscount().toPlainString() : "0.00",
-                invoice.getTotalPrice() != null ? invoice.getTotalPrice().toPlainString() : "0.00",
-                invoice.getPaidAt() != null ? invoice.getPaidAt().toString() : ""
+                invoice.getRoomPrice() != null ? invoice.getRoomPrice() : BigDecimal.ZERO,
+                invoice.getServicePrice() != null ? invoice.getServicePrice() : BigDecimal.ZERO,
+                invoice.getDiscount() != null ? invoice.getDiscount() : BigDecimal.ZERO,
+                invoice.getTotalPrice() != null ? invoice.getTotalPrice() : BigDecimal.ZERO,
+                invoice.getPaidAt() != null ? invoice.getPaidAt().format(java.time.format.DateTimeFormatter.ofPattern("yyyy-MM-dd'T'HH:mm:ss")) : ""
         );
     }
 }
